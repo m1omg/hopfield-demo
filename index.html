@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hopfield Network — an interactive demonstration</title>
+  <meta name="description" content="An interactive, from-scratch demonstration of the classical Hopfield network: associative recall, energy descent, weight structure, energy landscapes and the 0.138N capacity limit." />
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <meta property="og:title" content="Hopfield Network — an interactive demonstration" />
+  <meta property="og:description" content="Store patterns in a 256-neuron Hopfield network, corrupt them, and watch the energy roll downhill into a memory." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<a class="skip" href="#lab">Skip to the demo</a>
+
+<header class="site-header">
+  <a class="brand" href="#top">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span>Hopfield<span class="brand-dim">.network</span></span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#lab">Memory lab</a>
+    <a href="#internals">Internals</a>
+    <a href="#landscape">Landscape</a>
+    <a href="#capacity">Capacity</a>
+    <a href="#theory">Theory</a>
+  </nav>
+  <a class="ghost-btn" id="repo-link" href="https://github.com/m1omg/hopfield-demo" rel="noopener">Source</a>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Associative memory · 1982</p>
+      <h1>A network that <em>remembers</em> by rolling downhill.</h1>
+      <p class="lede">
+        A Hopfield network stores patterns as the minima of an energy function. Show it a
+        corrupted, half-erased, or barely recognisable fragment and it does only one thing —
+        repeatedly flip whichever neuron disagrees with its neighbours — until the energy can
+        fall no further. Wherever it stops <em>is</em> the recalled memory. No gradients, no
+        training loop, no backpropagation. Everything on this page runs live in your browser.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#lab">Open the memory lab</a>
+        <a class="btn" href="#theory">Show me the maths</a>
+      </div>
+    </div>
+    <figure class="hero-figure">
+      <canvas id="hero-canvas" width="420" height="420" aria-label="A Hopfield network continuously recalling corrupted patterns"></canvas>
+      <figcaption id="hero-caption">warming up…</figcaption>
+    </figure>
+  </section>
+
+  <div class="stat-strip">
+    <div class="stat"><span class="stat-val" id="stat-neurons">256</span><span class="stat-key">neurons (16×16)</span></div>
+    <div class="stat"><span class="stat-val" id="stat-weights">32,640</span><span class="stat-key">symmetric weights</span></div>
+    <div class="stat"><span class="stat-val" id="stat-states">2<sup>256</sup></span><span class="stat-key">possible states</span></div>
+    <div class="stat"><span class="stat-val">≈ 0.138 N</span><span class="stat-key">Hebbian capacity</span></div>
+  </div>
+
+  <!-- ─────────────────────────────  LAB  ───────────────────────────── -->
+  <section id="lab" class="section">
+    <header class="section-head">
+      <h2><span class="num">01</span> The memory lab</h2>
+      <p>
+        Choose the memories to store, corrupt the probe — paint on it directly if you like — then
+        let the network settle. The readouts follow the energy falling and the overlap with each
+        stored memory rising.
+      </p>
+    </header>
+
+    <div class="lab">
+      <aside class="panel bank-panel">
+        <div class="panel-head">
+          <h3>Memory bank</h3>
+          <span class="pill" id="bank-count">0 stored</span>
+        </div>
+        <div id="bank" class="bank" role="group" aria-label="Patterns available to store"></div>
+        <div class="bank-tools">
+          <div class="field">
+            <label for="glyph-input">Add a glyph</label>
+            <div class="inline">
+              <input id="glyph-input" maxlength="2" placeholder="Q" autocomplete="off" spellcheck="false" />
+              <button class="btn small" id="glyph-add">Add</button>
+            </div>
+          </div>
+          <div class="inline">
+            <button class="btn small" id="bank-capture">Store the probe</button>
+            <button class="btn small" id="bank-none">Clear all</button>
+          </div>
+          <p class="hint" id="bank-hint"></p>
+        </div>
+      </aside>
+
+      <section class="panel probe-panel">
+        <div class="panel-head">
+          <h3>Probe state</h3>
+          <span class="pill mono" id="probe-status">idle</span>
+        </div>
+        <div class="probe-stage">
+          <canvas id="probe" aria-label="Editable 16 by 16 network state"></canvas>
+        </div>
+        <div class="probe-tools">
+          <div class="field">
+            <label for="load-select">Start from</label>
+            <select id="load-select"></select>
+          </div>
+          <div class="field">
+            <label for="noise-range">Corruption <span class="mono" id="noise-val">30%</span></label>
+            <input type="range" id="noise-range" min="0" max="100" step="1" value="30" />
+          </div>
+          <div class="btn-row">
+            <button class="btn small" id="act-noise">Corrupt</button>
+            <button class="btn small" id="act-occlude">Occlude</button>
+            <button class="btn small" id="act-invert">Invert</button>
+            <button class="btn small" id="act-random">Random</button>
+            <button class="btn small" id="act-clear">Clear</button>
+            <button class="btn small" id="act-mix">Mixture</button>
+          </div>
+        </div>
+        <div class="transport">
+          <button class="btn primary" id="act-run">Recall</button>
+          <button class="btn" id="act-step">Step sweep</button>
+          <button class="btn" id="act-reset">Reset</button>
+        </div>
+      </section>
+
+      <aside class="panel readout-panel">
+        <div class="panel-head">
+          <h3>Readout</h3>
+          <span class="pill mono" id="rule-badge">Hebbian</span>
+        </div>
+        <div class="verdict" id="verdict" data-kind="idle">
+          <strong id="verdict-title">Waiting</strong>
+          <span id="verdict-body">Store a few memories and hit <em>Recall</em>.</span>
+        </div>
+        <div class="metric">
+          <span class="metric-key">Energy</span>
+          <span class="metric-val mono" id="energy-val">—</span>
+        </div>
+        <canvas id="energy-trace" class="trace" aria-label="Energy over time"></canvas>
+        <div class="mini-stats">
+          <div><span class="mono" id="stat-sweeps">0</span><small>sweeps</small></div>
+          <div><span class="mono" id="stat-flips">0</span><small>flips</small></div>
+          <div><span class="mono" id="stat-updates">0</span><small>updates</small></div>
+        </div>
+        <h4 class="sub">Overlap with each memory</h4>
+        <canvas id="overlap-bars" class="bars" aria-label="Overlap between the current state and each stored memory"></canvas>
+      </aside>
+    </div>
+
+    <div class="settings panel">
+      <div class="field">
+        <label for="rule-select">Learning rule</label>
+        <select id="rule-select">
+          <option value="hebbian" selected>Hebbian (1982)</option>
+          <option value="storkey">Storkey (1997)</option>
+          <option value="pseudo">Pseudo-inverse (projection)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mode-select">Update dynamics</label>
+        <select id="mode-select">
+          <option value="async" selected>Asynchronous — one neuron at a time</option>
+          <option value="sync">Synchronous — all neurons at once</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="temp-range">Temperature <span class="mono" id="temp-val">0.00</span></label>
+        <input type="range" id="temp-range" min="0" max="120" step="1" value="0" />
+      </div>
+      <div class="field">
+        <label for="speed-range">Speed <span class="mono" id="speed-val">24 / frame</span></label>
+        <input type="range" id="speed-range" min="1" max="100" step="1" value="45" />
+      </div>
+      <label class="check"><input type="checkbox" id="diff-toggle" /> <span>Outline bits that differ from the target</span></label>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────  INTERNALS  ─────────────────────────── -->
+  <section id="internals" class="section">
+    <header class="section-head">
+      <h2><span class="num">02</span> What the network actually is</h2>
+      <p>
+        There is no architecture to speak of — just one symmetric matrix. Here are the 65,536
+        weights that hold every memory you stored, and, beside them, how similar those memories are
+        to one another — which is exactly what decides whether recall works.
+      </p>
+    </header>
+    <div class="grid-2">
+      <figure class="panel">
+        <div class="panel-head"><h3>Weight matrix <span class="dim mono">W</span></h3><span class="pill mono" id="w-peak"></span></div>
+        <canvas id="weight-canvas" class="square" aria-label="Heat map of the weight matrix"></canvas>
+        <figcaption>
+          256 × 256 couplings, symmetric with a zero diagonal.
+          <span class="swatch pos"></span> excitatory · <span class="swatch neg"></span> inhibitory.
+          Structure appears because pixels that share a value across your memories learn to agree.
+        </figcaption>
+      </figure>
+      <figure class="panel">
+        <div class="panel-head"><h3>Memory overlap <span class="dim mono">ξ<sup>μ</sup>·ξ<sup>ν</sup>/N</span></h3><span class="pill mono" id="gram-worst"></span></div>
+        <canvas id="gram-canvas" class="square" aria-label="Overlap matrix between stored patterns"></canvas>
+        <figcaption id="gram-caption">
+          Off-diagonal heat means correlated memories. Random patterns are nearly orthogonal —
+          hand-made ones rarely are, and that is the usual reason a recall lands in the wrong basin.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────  LANDSCAPE  ─────────────────────────── -->
+  <section id="landscape" class="section">
+    <header class="section-head">
+      <h2><span class="num">03</span> The energy landscape</h2>
+      <p>
+        State space has 2<sup>256</sup> corners, so any picture of it is a slice. This is the slice
+        physicists draw: the plane of <em>overlaps</em> with two chosen memories. Every point is a real
+        state whose true energy is evaluated with the full weight matrix — dark is low, bright is high.
+        The four vertices of the diamond are the two memories and their mirror images, each at the
+        bottom of its own valley. Switch to <em>basins of attraction</em> to colour every starting
+        point by where the network ends up instead.
+      </p>
+    </header>
+    <div class="landscape-wrap panel">
+      <div class="landscape-controls">
+        <div class="field">
+          <label for="axis-a">Horizontal axis</label>
+          <select id="axis-a"></select>
+        </div>
+        <div class="field">
+          <label for="axis-b">Vertical axis</label>
+          <select id="axis-b"></select>
+        </div>
+        <div class="field">
+          <label for="proj-select">Show</label>
+          <select id="proj-select">
+            <option value="energy" selected>Energy surface</option>
+            <option value="basins">Basins of attraction</option>
+          </select>
+        </div>
+        <button class="btn primary" id="landscape-run">Compute surface</button>
+      </div>
+      <div class="landscape-stage">
+        <canvas id="landscape-canvas" aria-label="Energy landscape slice"></canvas>
+        <div class="landscape-legend" id="landscape-legend">
+          <span>low energy</span><span class="ramp"></span><span>high</span>
+        </div>
+      </div>
+      <p class="hint" id="landscape-hint">
+        Store at least two memories, then compute the surface. Run a recall in the lab first and
+        its trajectory is drawn on top.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────  CAPACITY  ─────────────────────────── -->
+  <section id="capacity" class="section">
+    <header class="section-head">
+      <h2><span class="num">04</span> How much can it hold?</h2>
+      <p>
+        Push past a critical load and a Hopfield network does not degrade gracefully — it
+        collapses. This runs a real Monte-Carlo experiment in a background thread: store P random
+        patterns in an N-neuron network, corrupt one, settle, and measure whether the original
+        came back. The Hebbian curve should fall off a cliff right around α = P/N ≈ 0.138.
+      </p>
+    </header>
+    <div class="panel capacity-wrap">
+      <div class="capacity-controls">
+        <div class="field">
+          <label for="cap-n">Network size N</label>
+          <select id="cap-n">
+            <option value="64">64 neurons</option>
+            <option value="100" selected>100 neurons</option>
+            <option value="196">196 neurons</option>
+            <option value="256">256 neurons</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cap-trials">Trials per point <span class="mono" id="cap-trials-val">24</span></label>
+          <input type="range" id="cap-trials" min="4" max="80" step="4" value="24" />
+        </div>
+        <div class="field">
+          <label for="cap-noise">Probe corruption <span class="mono" id="cap-noise-val">10%</span></label>
+          <input type="range" id="cap-noise" min="0" max="40" step="1" value="10" />
+        </div>
+        <fieldset class="rules-set">
+          <legend>Rules</legend>
+          <label class="check"><input type="checkbox" value="hebbian" checked /> <span>Hebbian</span></label>
+          <label class="check"><input type="checkbox" value="storkey" checked /> <span>Storkey</span></label>
+          <label class="check"><input type="checkbox" value="pseudo" /> <span>Pseudo-inverse</span></label>
+        </fieldset>
+        <button class="btn primary" id="cap-run">Run experiment</button>
+      </div>
+      <div class="capacity-stage">
+        <canvas id="capacity-canvas" aria-label="Retrieval success rate against memory load"></canvas>
+        <div class="progress" id="cap-progress" hidden><div class="progress-bar" id="cap-bar"></div></div>
+        <div class="legend" id="cap-legend"></div>
+        <p class="hint" id="cap-hint">Nothing measured yet — press <em>Run experiment</em>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────  THEORY  ─────────────────────────── -->
+  <section id="theory" class="section">
+    <header class="section-head">
+      <h2><span class="num">05</span> The whole model, on one page</h2>
+      <p>The classical Hopfield network is small enough to state completely. Here it is.</p>
+    </header>
+
+    <div class="theory">
+      <article class="panel card">
+        <h3>1 · State</h3>
+        <p>N neurons, each either firing or not:</p>
+        <p class="eq"><i>s</i> ∈ {−1, +1}<sup><i>N</i></sup></p>
+        <p>
+          Here N = 256, laid out as a 16×16 image purely so you can see it. The network has no
+          idea it is looking at a picture.
+        </p>
+      </article>
+
+      <article class="panel card">
+        <h3>2 · Storage</h3>
+        <p>Hebb's rule — neurons that fire together wire together:</p>
+        <p class="eq"><i>w<sub>ij</sub></i> = <span class="frac"><span>1</span><span><i>N</i></span></span> Σ<sub>μ=1</sub><sup><i>P</i></sup> ξ<sub><i>i</i></sub><sup>μ</sup> ξ<sub><i>j</i></sub><sup>μ</sup>,  <i>w<sub>ii</sub></i> = 0</p>
+        <p>
+          One pass over the data, no iteration, and the matrix is symmetric — which is the whole
+          reason the dynamics below are guaranteed to stop.
+        </p>
+      </article>
+
+      <article class="panel card">
+        <h3>3 · Dynamics</h3>
+        <p>Pick a neuron, look at what everyone else is telling it, agree with the majority:</p>
+        <p class="eq"><i>s<sub>i</sub></i> ← sgn( Σ<sub><i>j</i></sub> <i>w<sub>ij</sub></i> <i>s<sub>j</sub></i> )</p>
+        <p>
+          Update one neuron at a time (asynchronously) and the network always converges. Update
+          them all at once and it can fall into a two-cycle instead — try it in the lab.
+        </p>
+      </article>
+
+      <article class="panel card accent">
+        <h3>4 · Energy</h3>
+        <p>Every update is a step downhill on the Lyapunov function</p>
+        <p class="eq"><i>E</i>(<i>s</i>) = −<span class="frac"><span>1</span><span>2</span></span> Σ<sub><i>i</i>≠<i>j</i></sub> <i>w<sub>ij</sub></i> <i>s<sub>i</sub></i> <i>s<sub>j</sub></i></p>
+        <p>
+          Flipping neuron <i>i</i> changes the energy by Δ<i>E</i> = 2 <i>s<sub>i</sub></i> <i>h<sub>i</sub></i>,
+          and a flip only happens when that quantity is negative. E can only decrease, it is
+          bounded below, and there are finitely many states — so the network must halt. That
+          three-line argument is the entire convergence proof.
+        </p>
+      </article>
+
+      <article class="panel card">
+        <h3>5 · Capacity</h3>
+        <p>
+          Crosstalk between memories grows as you add them. The signal-to-noise analysis gives a
+          sharp phase transition at
+        </p>
+        <p class="eq">α<sub>c</sub> = <i>P</i> / <i>N</i> ≈ 0.138</p>
+        <p>
+          for Hebbian storage — about 35 memories in this 256-neuron network. Amit, Gutfreund and
+          Sompolinsky derived it with the replica method in 1985; section 04 measures it.
+        </p>
+      </article>
+
+      <article class="panel card">
+        <h3>6 · What else lives down there</h3>
+        <p>
+          The valleys you asked for are not the only ones. Every memory's mirror image −ξ<sup>μ</sup>
+          is a minimum too (the energy is even), and odd mixtures such as
+          sgn(ξ<sup>1</sup>+ξ<sup>2</sup>+ξ<sup>3</sup>) create <em>spurious</em> attractors that
+          belong to nothing you stored. The <em>Mixture</em> button drops the probe into one.
+          Raise the temperature and the network can shake itself out again.
+        </p>
+      </article>
+    </div>
+
+    <div class="panel refs">
+      <h3>Where this comes from</h3>
+      <ul>
+        <li>J. J. Hopfield (1982), <em>Neural networks and physical systems with emergent collective computational abilities</em>, PNAS 79(8).</li>
+        <li>D. J. Amit, H. Gutfreund, H. Sompolinsky (1985), <em>Storing infinite numbers of patterns in a spin-glass model of neural networks</em>, Phys. Rev. Lett. 55.</li>
+        <li>L. Personnaz, I. Guyon, G. Dreyfus (1986), <em>Collective computational properties of neural networks: new learning mechanisms</em>, Phys. Rev. A 34.</li>
+        <li>A. Storkey (1997), <em>Increasing the capacity of a Hopfield network without sacrificing functionality</em>, ICANN.</li>
+      </ul>
+      <p class="hint">
+        The 2024 Nobel Prize in Physics went to Hopfield and Hinton for this line of work. Modern
+        “dense” / continuous Hopfield networks push capacity to exponential in N and turn out to be
+        equivalent to transformer attention — but the model on this page is the 1982 original,
+        implemented exactly as written.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>Built from scratch — no ML libraries, no build step. Every number on this page was computed in your browser.</p>
+  <p class="dim">Open the console: the network is exposed as <code>window.hopfield</code>.</p>
+</footer>
+
+<noscript>
+  <p style="padding:2rem;text-align:center">This demonstration needs JavaScript — the entire network runs client-side.</p>
+</noscript>
+
+<script type="module" src="js/main.js"></script>
+
+</body>
+</html>
