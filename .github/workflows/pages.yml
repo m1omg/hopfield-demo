@@ -30,6 +30,10 @@ jobs:
   deploy:
     name: Deploy
     needs: test
+    # The github-pages environment only accepts deployments from the repository's
+    # default branch, so on any other branch skip this job rather than letting it
+    # be rejected. This follows the default branch automatically if it changes.
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     environment:
       name: github-pages
