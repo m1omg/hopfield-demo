@@ -110,15 +110,32 @@ export function initLab(app) {
             : 'This rule tolerates far more than the Hebbian 0.138.');
   }
 
+  /**
+   * Every pattern in the bank can be used as a probe, stored or not — showing the
+   * network something it has never learned is one of the more revealing things to
+   * try. The two groups make it obvious which is which.
+   */
   function renderLoadOptions() {
     const prev = els.loadSelect.value;
     els.loadSelect.textContent = '';
-    for (const item of app.stored) {
-      const o = document.createElement('option');
-      o.value = item.id;
-      o.textContent = item.label;
-      els.loadSelect.append(o);
+
+    const groups = [
+      ['Stored in the network', app.library.filter((p) => app.selected.has(p.id))],
+      ['Never stored — the network has not seen these', app.library.filter((p) => !app.selected.has(p.id))],
+    ];
+    for (const [label, items] of groups) {
+      if (!items.length) continue;
+      const group = document.createElement('optgroup');
+      group.label = label;
+      for (const item of items) {
+        const o = document.createElement('option');
+        o.value = item.id;
+        o.textContent = item.label;
+        group.append(o);
+      }
+      els.loadSelect.append(group);
     }
+
     const custom = document.createElement('option');
     custom.value = '__free';
     custom.textContent = '— free drawing —';
@@ -138,7 +155,7 @@ export function initLab(app) {
 
   function currentTargetPattern() {
     const id = els.loadSelect.value;
-    return app.stored.find((p) => p.id === id) || null;
+    return app.library.find((p) => p.id === id) || null;
   }
 
   function noiseFrac() {
@@ -453,8 +470,17 @@ export function initLab(app) {
     const item = currentTargetPattern();
     if (!item) return;
     setProbe(item.data, { newTarget: item.data });
-    els.probeStatus.textContent = 'clean';
-    setVerdict('idle', `Loaded ${item.label}`, 'Corrupt it, occlude it, or paint on it — then recall.');
+    const stored = app.selected.has(item.id);
+    els.probeStatus.textContent = stored ? 'clean' : 'not stored';
+    setVerdict(
+      'idle',
+      `Loaded ${item.label}`,
+      stored
+        ? 'Corrupt it, occlude it, or paint on it — then recall.'
+        : `<b>${item.label}</b> is not one of the stored memories, so it is not a fixed point. Recall it
+           as-is and the network will drag it into whichever basin it happens to be sitting in — often a
+           memory it merely resembles, sometimes a spurious state. Click its card in the bank to store it.`
+    );
   });
 
   els.noiseRange.addEventListener('input', () => {
